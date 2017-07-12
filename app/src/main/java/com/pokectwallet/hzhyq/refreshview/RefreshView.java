@@ -1,7 +1,10 @@
 package com.pokectwallet.hzhyq.refreshview;
 
+import android.animation.ObjectAnimator;
+import android.animation.ValueAnimator;
 import android.content.Context;
 import android.databinding.DataBindingUtil;
+import android.support.annotation.IntDef;
 import android.support.annotation.Nullable;
 import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
@@ -18,6 +21,9 @@ import android.view.animation.TranslateAnimation;
 import android.widget.LinearLayout;
 
 import com.pokectwallet.hzhyq.refreshview.databinding.RefreshHeadViewBinding;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 
 /**
  * Created by hzhyq on 2017/7/10.
@@ -38,8 +44,14 @@ public class RefreshView extends LinearLayout {
     //刷新失败
     private static final int REFRESH_IN_FAIL = 5;
 
+    @IntDef({NOMAL, REFRESH_IN_PULLDOWN, REFRESH_IN_RELEASE, REFRESHING, REFRESH_IN_SUCCESS, REFRESH_IN_FAIL})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface State {
+
+    }
+
     private RefreshListener refreshListener;
-    private View refreshHeadView;
+    private LinearLayout refreshHeadView;
     private int headViewTopMargin = 0;
     private static int maxTopMargin;
     private int lastY;
@@ -64,15 +76,17 @@ public class RefreshView extends LinearLayout {
     }
 
     private void init() {
+        setRefreshState(NOMAL);
         binding = DataBindingUtil.inflate(LayoutInflater.from(context), R.layout.refresh_head_view, null, false);
-        refreshHeadView = binding.getRoot();
+        refreshHeadView = binding.container;
         headViewTopMargin = (int) DensityUtil.dip2px(getContext(), 40);
         maxTopMargin = (int) DensityUtil.dip2px(getContext(), 70);
-        LayoutParams layoutParams = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, headViewTopMargin);
+        LayoutParams layoutParams = (LayoutParams) refreshHeadView.getLayoutParams();
         layoutParams.topMargin = -headViewTopMargin;
-        layoutParams.gravity = Gravity.CENTER;
+        refreshHeadView.setLayoutParams(layoutParams);
+        setGravity(Gravity.CENTER);
         setOrientation(VERTICAL);
-        addView(binding.getRoot(), layoutParams);
+        addView(binding.getRoot());
     }
 
     public void setRefreshListener(RefreshListener refreshListener) {
@@ -81,6 +95,9 @@ public class RefreshView extends LinearLayout {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
+        if (!isRefreshEnabled) {
+            return false;
+        }
         int currentY = (int) event.getRawY();
         switch (event.getAction()) {
             case MotionEvent.ACTION_DOWN:
@@ -92,24 +109,64 @@ public class RefreshView extends LinearLayout {
                 lastY = currentY;
                 break;
             case MotionEvent.ACTION_UP:
-                refreshInRelease();
+                if (getRefreshState() <= REFRESH_IN_PULLDOWN) {
+                    startHeadViewAnimation(((LayoutParams) refreshHeadView.getLayoutParams()).topMargin, -headViewTopMargin,300,null);
+                } else {
+                    refreshInRelease();
+                }
                 break;
         }
         return true;
     }
 
+    private void startHeadViewAnimation(int startHeight, final int endHeight, int duration,@Nullable final Runnable runnable) {
+        ObjectAnimator animator = ObjectAnimator.ofInt(refreshHeadView, "topMargin",startHeight,endHeight)
+                .setDuration(duration);
+        animator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+            @Override
+            public void onAnimationUpdate(ValueAnimator animation) {
+                Log.i(TAG,"update "+animation.getAnimatedValue());
+                LayoutParams params = (LayoutParams) refreshHeadView.getLayoutParams();
+                params.topMargin = (int) animation.getAnimatedValue();
+                refreshHeadView.setLayoutParams(params);
+                invalidate();
+                if(((int)animation.getAnimatedValue()) == endHeight){
+                    if(runnable != null){
+                        runnable.run();
+                    }
+                }
+            }
+        });
+        animator.start();
+    }
+
     private void handleMove(int currentY) {
+        setRefreshState(REFRESH_IN_PULLDOWN);
         int pullSpace = currentY - lastY;
         LayoutParams l = (LayoutParams) refreshHeadView.getLayoutParams();
-        float rate = 1f - (float)currentY / (float)getHeight();
-        Log.i(TAG, "rate " + rate);
-        int calMoveY = (int) (l.topMargin + pullSpace * rate);
+        double rate = Math.cos((float) currentY / (float) getHeight() * Math.PI / 2);
+        // Log.i(TAG, "rate " + rate);
+        int calMoveY = (int) (l.topMargin + pullSpace * (rate <= 0.2 ? 0.2 : rate));
         l.topMargin = calMoveY;
         refreshHeadView.setLayoutParams(l);
         refreshInPullDown();
         invalidate();
         if (calMoveY > maxTopMargin) {
+            setRefreshState(REFRESH_IN_RELEASE);
             binding.txtStatus.setText("释放立即刷新");
+        }
+    }
+
+    public int getRefreshState() {
+        return refreshState;
+    }
+
+    public void setRefreshState(@State int refreshState) {
+        this.refreshState = refreshState;
+        if (refreshState > REFRESH_IN_RELEASE) {
+            isRefreshEnabled = false;
+        } else {
+            isRefreshEnabled = true;
         }
     }
 
@@ -153,34 +210,19 @@ public class RefreshView extends LinearLayout {
     }
 
     void refreshInRelease() {
+        setRefreshState(REFRESH_IN_RELEASE);
         refreshing();
-        LayoutParams l = (LayoutParams) refreshHeadView.getLayoutParams();
-        TranslateAnimation animator = new TranslateAnimation(0, 0, 0, -l.topMargin);
-        animator.setDuration(500);
-        animator.setAnimationListener(new Animation.AnimationListener() {
+        final LayoutParams l = (LayoutParams) refreshHeadView.getLayoutParams();
+        startHeadViewAnimation(l.topMargin, 0, 300, new Runnable() {
             @Override
-            public void onAnimationStart(Animation animation) {
-
-            }
-
-            @Override
-            public void onAnimationEnd(Animation animation) {
-                LayoutParams l = (LayoutParams) refreshHeadView.getLayoutParams();
-                l.topMargin = 0;
-                refreshHeadView.setLayoutParams(l);
-                refreshHeadView.invalidate();
+            public void run() {
                 request();
             }
-
-            @Override
-            public void onAnimationRepeat(Animation animation) {
-
-            }
         });
-        startAnimation(animator);
     }
 
     private void request() {
+        setRefreshState(REFRESHING);
         postDelayed(new Runnable() {
             @Override
             public void run() {
@@ -196,11 +238,13 @@ public class RefreshView extends LinearLayout {
     }
 
     void refreshSucceed() {
+        setRefreshState(REFRESH_IN_SUCCESS);
         binding.txtStatus.setText("刷新成功");
         translateToOrigin();
     }
 
     void refreshFailed() {
+        setRefreshState(REFRESH_IN_FAIL);
         binding.txtStatus.setText("刷新失败");
         translateToOrigin();
     }
@@ -230,7 +274,7 @@ public class RefreshView extends LinearLayout {
                     public void onAnimationEnd(Animation animation) {
                         l.topMargin = -headViewTopMargin;
                         refreshHeadView.setLayoutParams(l);
-                        refreshHeadView.invalidate();
+                        setRefreshState(NOMAL);
                     }
 
                     @Override

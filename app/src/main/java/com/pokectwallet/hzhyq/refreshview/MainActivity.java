@@ -1,5 +1,6 @@
 package com.pokectwallet.hzhyq.refreshview;
 
+import android.content.Intent;
 import android.databinding.DataBindingUtil;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
@@ -49,6 +50,24 @@ public class MainActivity extends AppCompatActivity implements RefreshView.Refre
             }
         }, 2000);
     }
+
+    public void ToTest(View view){
+        startActivity(new Intent(MainActivity.this,TestActivity.class));
+    }
+
+    /*@Override
+    public void onRefresh() {
+        binding.getRoot().postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                s.add("ddd");
+                s.add("eee");
+                s.add("fff");
+                binding.refreshView.finishRefresh(true);
+                adapter.notifyItemRangeChanged(3,3);
+            }
+        }, 2000);
+    }*/
 
     class MyViewHolder extends RecyclerView.ViewHolder {
         public TextView textView;
