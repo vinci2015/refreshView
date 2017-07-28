@@ -10,6 +10,7 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.pokectwallet.hzhyq.refreshview.databinding.ActivityMainBinding;
 
@@ -32,6 +33,13 @@ public class MainActivity extends AppCompatActivity implements RefreshView.Refre
         s.add("bbb");
         s.add("ccc");
         binding.refreshView.setRefreshListener(this);
+        binding.refreshView.setBannerVisible(true);
+        binding.refreshView.setOnBannerClickListener(new Runnable() {
+            @Override
+            public void run() {
+                Toast.makeText(MainActivity.this,"click",Toast.LENGTH_SHORT).show();
+            }
+        });
         binding.recyclerView.setLayoutManager(new LinearLayoutManager(this));
         adapter = new MyAdapter();
         binding.recyclerView.setAdapter(adapter);

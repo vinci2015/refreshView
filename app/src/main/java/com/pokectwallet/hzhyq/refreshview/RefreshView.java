@@ -4,6 +4,8 @@ import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.databinding.DataBindingUtil;
+import android.graphics.drawable.Drawable;
+import android.support.annotation.DrawableRes;
 import android.support.annotation.IntDef;
 import android.support.annotation.Nullable;
 import android.support.v7.widget.LinearLayoutManager;
@@ -15,7 +17,6 @@ import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.animation.Animation;
 import android.view.animation.TranslateAnimation;
 import android.widget.LinearLayout;
@@ -60,6 +61,8 @@ public class RefreshView extends LinearLayout {
     private int refreshState = NOMAL;
     private RefreshHeadViewBinding binding;
     private Context context;
+    private boolean hasBanner = false;
+    private boolean isLoading = false;
 
     public interface RefreshListener {
         void onFresh();
@@ -77,18 +80,42 @@ public class RefreshView extends LinearLayout {
 
     private void init() {
         setRefreshState(NOMAL);
+        setGravity(Gravity.CENTER);
+        setOrientation(VERTICAL);
         binding = DataBindingUtil.inflate(LayoutInflater.from(context), R.layout.refresh_head_view, null, false);
         refreshHeadView = binding.container;
-        headViewTopMargin = (int) DensityUtil.dip2px(getContext(), 40);
-        maxTopMargin = (int) DensityUtil.dip2px(getContext(), 70);
+        addHeadView();
+        Log.i(TAG,"init");
+    }
+
+    void addHeadView(){
+        if(getChildCount()>=2){
+           removeView(binding.getRoot());
+        }
+        headViewTopMargin = (int) DensityUtil.dip2px(getContext(), hasBanner ?170:40);
+        maxTopMargin = (int) DensityUtil.dip2px(getContext(), hasBanner ?30:70);
         LayoutParams layoutParams = (LayoutParams) refreshHeadView.getLayoutParams();
         layoutParams.topMargin = -headViewTopMargin;
         refreshHeadView.setLayoutParams(layoutParams);
-        setGravity(Gravity.CENTER);
-        setOrientation(VERTICAL);
-        addView(binding.getRoot());
+        addView(binding.getRoot(),0);
     }
-
+    public void setBannerVisible(boolean visible){
+        hasBanner = visible;
+        if(visible) {
+            binding.banner.setVisibility(VISIBLE);
+        }
+        addHeadView();
+    }
+    public void setOnBannerClickListener(final Runnable runnable){
+        if(hasBanner){
+            binding.banner.setOnClickListener(new OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    runnable.run();
+                }
+            });
+        }
+    }
     public void setRefreshListener(RefreshListener refreshListener) {
         this.refreshListener = refreshListener;
     }
@@ -141,19 +168,22 @@ public class RefreshView extends LinearLayout {
     }
 
     private void handleMove(int currentY) {
-        setRefreshState(REFRESH_IN_PULLDOWN);
-        int pullSpace = currentY - lastY;
-        LayoutParams l = (LayoutParams) refreshHeadView.getLayoutParams();
-        double rate = Math.cos((float) currentY / (float) getHeight() * Math.PI / 2);
-        // Log.i(TAG, "rate " + rate);
-        int calMoveY = (int) (l.topMargin + pullSpace * (rate <= 0.2 ? 0.2 : rate));
-        l.topMargin = calMoveY;
-        refreshHeadView.setLayoutParams(l);
-        refreshInPullDown();
-        invalidate();
-        if (calMoveY > maxTopMargin) {
-            setRefreshState(REFRESH_IN_RELEASE);
-            binding.txtStatus.setText("释放立即刷新");
+        if(currentY >= lastY) {
+            setRefreshState(REFRESH_IN_PULLDOWN);
+            int pullSpace = currentY - lastY;
+            LayoutParams l = (LayoutParams) refreshHeadView.getLayoutParams();
+            double rate = Math.cos((float) currentY / (float) getHeight() * Math.PI / 2);
+            // Log.i(TAG, "rate " + rate);
+            int calMoveY = (int) (l.topMargin + pullSpace * (rate <= 0.2 ? 0.2 : rate));
+            l.topMargin = calMoveY;
+            refreshHeadView.setLayoutParams(l);
+            refreshInPullDown();
+            invalidate();
+            if (calMoveY > maxTopMargin) {
+                setRefreshState(REFRESH_IN_RELEASE);
+                binding.txtStatus.setText("释放立即刷新");
+                binding.txtStatus.setCompoundDrawables(buildUpDrawable(R.mipmap.pull_up), null, null, null);
+            }
         }
     }
 
@@ -170,6 +200,11 @@ public class RefreshView extends LinearLayout {
         }
     }
 
+     Drawable buildUpDrawable(@DrawableRes int resId){
+        Drawable drawable = getResources().getDrawable(resId);
+        drawable.setBounds(0,0,(int)DensityUtil.dip2px(getContext(),20),(int)DensityUtil.dip2px(getContext(),20));
+        return drawable;
+    }
     @Override
     public boolean onInterceptTouchEvent(MotionEvent ev) {
         int y = (int) ev.getRawY();
@@ -178,7 +213,7 @@ public class RefreshView extends LinearLayout {
                 lastY = y;
                 return false;
             case MotionEvent.ACTION_MOVE:
-                return y > lastY && shouldPull();
+                return y>lastY && shouldPull();
         }
         return false;
     }
@@ -189,15 +224,19 @@ public class RefreshView extends LinearLayout {
             //只处理recyclerview
             if (child instanceof RecyclerView) {
                 RecyclerView.LayoutManager manager = ((RecyclerView) child).getLayoutManager();
-                int position = 0;
+                int firstPosition = 0;
+                int lastPosition = 0;
                 if (manager instanceof LinearLayoutManager) {
-                    position = ((LinearLayoutManager) manager).findFirstVisibleItemPosition();
+                    firstPosition = ((LinearLayoutManager) manager).findFirstVisibleItemPosition();
+                    lastPosition = ((LinearLayoutManager) manager).findLastVisibleItemPosition();
                 } else if (manager instanceof StaggeredGridLayoutManager) {
-                    position = ((StaggeredGridLayoutManager) manager).findFirstVisibleItemPositions(null)[0];
+                    firstPosition = ((StaggeredGridLayoutManager) manager).findFirstVisibleItemPositions(null)[0];
+                    lastPosition = ((StaggeredGridLayoutManager) manager).findLastVisibleItemPositions(null)[0];
                 }
-                if (position == 0 && ((RecyclerView) child).getChildAt(0).getY() == 0) {
+                if (firstPosition == 0 && ((RecyclerView) child).getChildAt(0).getY() == 0) {
+                    // to top
                     return true;
-                } else {
+                } else{
                     return false;
                 }
             }
@@ -206,7 +245,9 @@ public class RefreshView extends LinearLayout {
     }
 
     void refreshInPullDown() {
+        binding.progress.setVisibility(GONE);
         binding.txtStatus.setText("下拉刷新");
+        binding.txtStatus.setCompoundDrawables(buildUpDrawable(R.mipmap.pull_down),null,null,null);
     }
 
     void refreshInRelease() {
@@ -234,18 +275,23 @@ public class RefreshView extends LinearLayout {
     }
 
     void refreshing() {
+        binding.txtStatus.setCompoundDrawables(null,null,null,null);
         binding.txtStatus.setText("正在刷新");
+        binding.progress.setVisibility(VISIBLE);
     }
 
     void refreshSucceed() {
         setRefreshState(REFRESH_IN_SUCCESS);
         binding.txtStatus.setText("刷新成功");
+        binding.progress.setVisibility(GONE);
+        binding.txtStatus.setCompoundDrawables(buildUpDrawable(R.mipmap.pull_ok),null,null,null);
         translateToOrigin();
     }
 
     void refreshFailed() {
         setRefreshState(REFRESH_IN_FAIL);
         binding.txtStatus.setText("刷新失败");
+        binding.txtStatus.setCompoundDrawables(buildUpDrawable(R.mipmap.pull_failure),null,null,null);
         translateToOrigin();
     }
 
